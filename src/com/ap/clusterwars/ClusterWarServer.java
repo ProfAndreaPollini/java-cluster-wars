@@ -13,7 +13,12 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+
 public class ClusterWarServer {
+    public enum GameState { COUNTDOWN, RUNNING, FINISHED }
 
     private static final int PORT = 5000;
     public static final int GRID_SIZE = 40;
@@ -23,11 +28,72 @@ public class ClusterWarServer {
     private static ConcurrentHashMap<String, BotHandler> players = new ConcurrentHashMap<>();
     private static List<ClusterResource> resources = new CopyOnWriteArrayList<>();
 
+    private static Map<String, Integer> globalHistory = new HashMap<>();
+    private static final String HISTORY_FILE = "match_history.json";
 
+    private GameState currentState = GameState.COUNTDOWN;
+    private int timerTicks = 10; // 3 secondi per il countdown iniziale
+    private int matchDuration = 180; // 3 minuti di gioco (180 secondi)
+    private final int POST_MATCH_PAUSE = 20; // 20 secondi per vedere la classifica
 
     public ClusterWarServer() {
+        loadHistory();
         generateResources(NUM_RESOURCES);
     }
+
+
+    private void loadHistory() {
+        try {
+            if (!Files.exists(Paths.get(HISTORY_FILE))) return;
+
+            String content = Files.readString(Paths.get(HISTORY_FILE));
+            // Parsing manuale "ultra-light" se non vuoi librerie esterne
+            // Cerca i pattern "ip": "..." e "score": ...
+            content = content.replace("[", "").replace("]", "").replace("{", "");
+            String[] entries = content.split("},");
+
+            for (String entry : entries) {
+                try {
+                    String ip = entry.split("\"ip\": \"")[1].split("\"")[0];
+                    int score = Integer.parseInt(entry.split("\"score\": ")[1].split("\\n|\\r|,")[0].trim());
+                    globalHistory.put(ip, score);
+                } catch (Exception e) { /* riga malformata o vuota */ }
+            }
+            System.out.println("Storico caricato: " + globalHistory.size() + " IP trovati.");
+        } catch (IOException e) {
+            System.err.println("Impossibile caricare lo storico.");
+        }
+    }
+    private void saveResultsToJson() {
+
+        for (BotHandler b : players.values()) {
+            globalHistory.put(b.getClientIP(), b.getScore());
+        }
+
+        StringBuilder json = new StringBuilder("[\n");
+        int count = 0;
+        for (Map.Entry<String, Integer> entry : globalHistory.entrySet()) {
+            json.append("  {\n");
+            json.append("    \"ip\": \"").append(entry.getKey()).append("\",\n");
+            json.append("    \"score\": ").append(entry.getValue()).append("\n");
+            json.append("  }");
+            if (++count < globalHistory.size()) json.append(",");
+            json.append("\n");
+        }
+        json.append("]");
+
+        try {
+            Files.writeString(Paths.get(HISTORY_FILE), json.toString());
+            System.out.println("Storico salvato su disco.");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+
+    public GameState getCurrentState() { return currentState; }
+    public int getTimer() { return timerTicks; }
 
     private void generateResources(int numResources) {
         Random r = new Random();
@@ -59,19 +125,36 @@ public class ClusterWarServer {
             newHandler.setX(oldData.getX());
             newHandler.setY(oldData.getY());
             newHandler.setEnergy(oldData.getEnergy());
-            if (newHandler.getEnergy() == 0) {
-                newHandler.setEnergy(100);
-                newHandler.setScore(oldData.getScore()/2);
-//                newHandler.setScore();
-            } else {
-                newHandler.setScore(oldData.getScore()); // Se hai un campo score
-            }
+//            if (newHandler.getEnergy() == 0) {
+//                newHandler.setEnergy(100);
+//                newHandler.setScore(oldData.getScore()/2);
+//            } else {
+//                newHandler.setScore(oldData.getScore()); // Se hai un campo score
+//            }
             newHandler.setVisualX(oldData.getVisualX());
             newHandler.setVisualY(oldData.getVisualY());
 
             System.out.println("[RECONNECT] Bot " + name + " è tornato in gioco!");
         }
+
+        String clientIP = newHandler.getClientIP();
+
+        // 1. Controlliamo se è una riconnessione a caldo (stesso nome in questa manche)
+        if (players.containsKey(name)) {
+            BotHandler oldData = players.get(name);
+            newHandler.setScore(oldData.getScore());
+            newHandler.setEnergy(oldData.getEnergy());
+            System.out.println("[RECONNECT] " + name + " ha ripreso la sessione.");
+        }
+        // 2. Controlliamo se è un nuovo accesso ma l'IP ha punti da manche precedenti
+        else if (globalHistory.containsKey(clientIP)) {
+            int oldScore = globalHistory.get(clientIP);
+            newHandler.setScore(oldScore);
+            System.out.println("[HISTORY] IP " + clientIP + " ha recuperato " + oldScore + " punti.");
+        }
+
         players.put(name, newHandler);
+
     }
 
     public void removePlayer(String name) {
@@ -79,50 +162,108 @@ public class ClusterWarServer {
     }
 
     public void updateGameState() {
-        // 1. Applichiamo i movimenti
-        for (BotHandler b : players.values()) {
-            if (b.isDead()) {
-                b.handleRespawn(); // Gestisce il countdown
-                continue; // Salta il movimento e l'attacco per questo tick
+
+        if (currentState == GameState.COUNTDOWN) {
+            if (timerTicks > 0) {
+                timerTicks--;
+            } else {
+                currentState = GameState.RUNNING;
+                timerTicks = matchDuration; // Carica il timer del match
             }
-            b.executeMove(GRID_SIZE);
-            // 2. Controllo risorse
-            resources.removeIf(p -> {
-                if (p.getX() == b.getX() && p.getY() == b.getY()) {
-                    b.setEnergy(Math.min(100, b.getEnergy() + 30));
-                    b.registerCollection();
-                    p.applyEffect(b);
-                    return true;
+            return; // Non muovere nulla durante il countdown
+        }
+
+        if (currentState == GameState.RUNNING) {
+            timerTicks--;
+            if (timerTicks <= 0) {
+                currentState = GameState.FINISHED;
+                timerTicks = POST_MATCH_PAUSE;
+                saveResultsToJson(); // Salvataggio a fine match
+            }
+
+
+            // 1. Applichiamo i movimenti
+            for (BotHandler b : players.values()) {
+                if (b.isDead()) {
+                    b.handleRespawn(); // Gestisce il countdown
+                    continue; // Salta il movimento e l'attacco per questo tick
                 }
-                return false;
-            });
+                b.executeMove(GRID_SIZE);
+                // 2. Controllo risorse
+                resources.removeIf(p -> {
+                    if (p.getX() == b.getX() && p.getY() == b.getY()) {
+                        b.setEnergy(Math.min(100, b.getEnergy() + 30));
+                        b.registerCollection();
+                        p.applyEffect(b);
+                        return true;
+                    }
+                    return false;
+                });
+            }
+
+            // 3. Risolviamo attacchi
+            for (BotHandler b : players.values()) {
+                if (b.getLastAction() != null && b.getLastAction().startsWith("ATTACK:")) {
+                    try {
+                        String[] parts = b.getLastAction().split(":")[1].split(",");
+                        int tx = Integer.parseInt(parts[0]);
+                        int ty = Integer.parseInt(parts[1]);
+                        for (BotHandler victim : players.values()) {
+                            if (victim.getX() == tx && victim.getY() == ty && victim != b) {
+//                            victim.setEnergy(victim.getEnergy() - 20);
+                                victim.takeDamage(20);
+
+                                IO.println(b.getName() + " colpisce " + victim.getName());
+                                victim.registerHit();
+                            }
+                        }
+                    } catch (Exception e) { /* Comando malformato */ }
+                }
+            }
+
+            // 4. Inviamo lo STATUS a tutti per il prossimo turno
+
+            for (BotHandler b : players.values()) {
+                String resString = buildResourceString(b);
+                b.sendStatus(players.values(), resString);
+            }
+
         }
 
-        // 3. Risolviamo attacchi
-        for (BotHandler b : players.values()) {
-            if (b.getLastAction() != null && b.getLastAction().startsWith("ATTACK:")) {
-                try {
-                    String[] parts = b.getLastAction().split(":")[1].split(",");
-                    int tx = Integer.parseInt(parts[0]);
-                    int ty = Integer.parseInt(parts[1]);
-                    for (BotHandler victim : players.values()) {
-                        if (victim.getX() == tx && victim.getY() == ty && victim != b) {
-//                            victim.setEnergy(victim.getEnergy() - 20);
-                            victim.takeDamage(20);
-
-                            IO.println(b.getName() + " colpisce " + victim.getName());
-                            victim.registerHit();
-                        }
-                    }
-                } catch (Exception e) { /* Comando malformato */ }
+        if (currentState == GameState.FINISHED) {
+            if (timerTicks > 0) {
+                timerTicks--;
+            } else {
+                // IL CICLO RICOMINCIA
+                resetMatch();
+                currentState = GameState.COUNTDOWN;
+                timerTicks = 10; // Nuovo countdown
             }
         }
+    }
 
-        // 4. Inviamo lo STATUS a tutti per il prossimo turno
 
+
+    private void resetMatch() {
+        System.out.println("--- RESET MATCH: Rigenerazione arena ---");
+
+        // 1. Puliamo e rigeneriamo le risorse
+        resources.clear();
+        generateResources(NUM_RESOURCES);
+
+        // 2. Resettiamo i bot connessi per la nuova manche
         for (BotHandler b : players.values()) {
-            String resString = buildResourceString(b);
-            b.sendStatus(players.values(), resString);
+            b.setEnergy(100);
+            b.setDead(false);
+            // Posizione casuale di partenza
+            Random r = new Random();
+            b.setX(r.nextInt(GRID_SIZE));
+            b.setY(r.nextInt(GRID_SIZE));
+            b.setVisualX(b.getX());
+            b.setVisualY(b.getY());
+
+            // Nota: NON resettiamo b.getScore() perché vogliamo che i punti
+            // siano cumulativi tra le manche, come salvato nel JSON.
         }
     }
 
@@ -162,6 +303,19 @@ public class ClusterWarServer {
                 System.out.println("Network Server attivo sulla porta " + PORT);
                 while (true) {
                     Socket clientSocket = serverSocket.accept();
+
+//                    String clientIP = clientSocket.getInetAddress().getHostAddress();
+//
+//
+//                    long activeConnections = players.values().stream()
+//                            .filter(b -> b.getClientIP().equals(clientIP))
+//                            .count();
+//
+//                    if (activeConnections >= 1) { // Limite di 1 bot per postazione
+//                        System.out.println("[SECURITY] Rifiutata connessione multipla da: " + clientIP);
+//                        clientSocket.close(); // Chiudi subito senza creare il thread
+//                        continue;
+//                    }
                     // BotHandler deve avere accesso a serverLogic o alla mappa dei player
                     new Thread(new BotHandler(this,clientSocket)).start();
                 }

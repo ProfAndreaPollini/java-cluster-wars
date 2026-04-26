@@ -12,6 +12,7 @@ import java.util.Random;
 
 public class BotHandler implements Runnable {
     private final Socket socket;
+    private final String clientIP;
     private String name;
     private int x, y, energy = 100;
     private boolean isHacker;
@@ -25,6 +26,11 @@ public class BotHandler implements Runnable {
     private boolean isDead = false;
     private int respawnTimer = 0;
     private int viewDistance = 10;
+
+    private long lastMessageTime = 0;
+    private int messageCount = 0;
+    private final int MAX_MESSAGES_PER_SECOND = 10; // Un bot onesto non invia più di 1-2 messaggi
+
 
     public boolean isDead() {
         return isDead;
@@ -104,7 +110,21 @@ public class BotHandler implements Runnable {
         gameServer = server;
         this.visualX = x ;
         this.visualY = y ;
+        this.clientIP = socket.getInetAddress().getHostAddress();
     }
+
+    private void disconnect() {
+        try {
+            // Chiudere la socket interrompe immediatamente l'in.readLine() nel metodo run()
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        } catch (IOException e) {
+            System.err.println("Errore durante la disconnessione di " + name);
+        }
+    }
+
+    public String getClientIP() { return clientIP; }
 
     public void run() {
         try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
@@ -117,6 +137,25 @@ public class BotHandler implements Runnable {
 
             String line;
             while ((line = in.readLine()) != null) {
+                // --- ANTI-FLOOD LOGIC ---
+                long currentTime = System.currentTimeMillis();
+
+                // Se è passato meno di un secondo dall'ultimo controllo, incrementa
+                if (currentTime - lastMessageTime < 1000) {
+                    messageCount++;
+                } else {
+                    messageCount = 0; // Reset ogni secondo
+                    lastMessageTime = currentTime;
+                }
+
+                if (messageCount > MAX_MESSAGES_PER_SECOND) {
+                    System.err.println("[FLOOD] Kick " + name + " per spam comandi.");
+
+                    break; // Esci dal loop e chiudi la socket nel finally
+
+                }
+                // -----------------------
+
                 this.lastAction = line.toUpperCase(); // Salva l'intenzione per il prossimo tick
             }
         } catch (IOException e) {
@@ -124,6 +163,7 @@ public class BotHandler implements Runnable {
         } finally {
 //            gameServer.removePlayer(name); // scommenta per avere respawn alla connessione al 100%
             this.lastAction = "IDLE";
+            disconnect();
         }
     }
 
@@ -149,6 +189,9 @@ public class BotHandler implements Runnable {
         else if (lastAction.equals("MOVE_LEFT") && x > 0) x--;
         else if (lastAction.equals("MOVE_RIGHT") && x < limit-1) x++;
         energy = Math.max(0, energy - 1); // Muoversi stanca
+        if (energy <= 0) {
+            setDead();
+        }
     }
 
     public void sendStatus(Collection<BotHandler> allBots, String resString) {
@@ -202,10 +245,15 @@ public class BotHandler implements Runnable {
         return false;
     }
 
-    public void setDead() {
-        isDead = true;
-        this.respawnTimer = 5;
-        energy = 0;
+    public void setDead(){
+        setDead(true);
+    }
+
+    public void setDead(boolean dead) {
+        isDead = dead;
+        this.respawnTimer = 15;
+        energy = 100;
+        //disconnect();
     }
 
     public void takeDamage(int amount) {
