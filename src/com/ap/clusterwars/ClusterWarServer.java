@@ -188,6 +188,11 @@ public class ClusterWarServer {
                     b.handleRespawn(); // Gestisce il countdown
                     continue; // Salta il movimento e l'attacco per questo tick
                 }
+
+                if (b.getLastAction().equals("WAIT")) {
+                    b.setEnergy(Math.min(100, b.getEnergy() + 1));
+                }
+
                 b.executeMove(GRID_SIZE);
                 // 2. Controllo risorse
                 resources.removeIf(p -> {
