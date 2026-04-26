@@ -54,64 +54,7 @@ void main() {
 
         floatingTexts.forEach(FloatingText::update);
         floatingTexts.removeIf(FloatingText::isDead);
-// --- PARTE B: RENDERING (Eseguito a 60 FPS) ---
-//        BeginDrawing();
-//        ClearBackground(BLACK);
-//
-//        // Disegna la griglia di sfondo (estetica hacker)
-//        for (int i = 0; i < GRID_SIZE; i++) {
-//            DrawLine(i * CELL_SIZE, 0, i * CELL_SIZE, 800, DARKGRAY);
-//            DrawLine(0, i * CELL_SIZE, 800, i * CELL_SIZE, DARKGRAY);
-//        }
-//
-//        // Disegna le risorse (Polimorfismo: chiama res.draw())
-//        for (ClusterResource res : gameServer.getResources()) {
-//            if (res.isActive()) res.draw();
-//        }
-//
-//        // Disegna i Bot degli studenti
-//        for (BotHandler bot : gameServer.getPlayers()) {
-//            Color color = bot.isHacker() ? RED : SKYBLUE;
-//
-//
-//            // Corpo del bot
-//            float botSize = CELL_SIZE * 0.8f; // Il bot occupa l'80% della cella
-//            float offset = (CELL_SIZE - botSize) / 2; // Spazio per centrare
-////            DrawRectangle(bot.getVisualX() , bot.getVisualY() , CELL_SIZE, CELL_SIZE, color);
-////            Vector2 pos = new Vector2();
-////            pos.x(bot.getVisualX()*CELL_SIZE + offset);
-////            pos.y(bot.getVisualY()*CELL_SIZE + offset);
-//            var botX = (int) (bot.getVisualX()*CELL_SIZE + offset);
-//            var botY = (int) (bot.getVisualY()*CELL_SIZE + offset);
-//
-//
-//
-//            DrawRectangle(
-//                    botX,
-//                    botY,
-//                    (int) botSize,
-//                    (int) botSize,
-//                    color
-//            );
-//            var sb = new StringBuilder();
-//            sb.append("BOT [").append(bot.getName()).append("]").append(bot.getVisualX()).append(" ").append(bot.getVisualY())
-//                    .append("[ ").append(botX).append(", ").append(botY).append("]\n");
-//            IO.println(sb.toString());
-//
-//            // Nome sopra il bot
-//            DrawText(bot.getName(), botX , botY  - 12, 10, WHITE);
-//
-//            // Piccola barra dell'energia sotto il bot
-//            float energyRatio = bot.getEnergy() / 100.0f;
-//            DrawRectangle(botX , botY  + CELL_SIZE - 2,
-//                    (int)(CELL_SIZE * energyRatio), 2, GREEN);
-//        }
-//
-//        // Overlay con classifica o info (Opzionale)
-//        DrawFPS(10, 10);
-//        DrawText("SISTEMA ATTIVO - ROUND TICK: " + (int)currentTime, 10, 30, 20, LIME);
-//
-//        EndDrawing();
+
         BeginDrawing();
         ClearBackground(BLACK);
         // --- 1. DISEGNO SIDEBAR (Leaderboard) ---
@@ -119,7 +62,7 @@ void main() {
         DrawLine(SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, LIME);
 
         DrawText("RANKING", 20, 20, 25, GOLD);
-        DrawText("Fazione: Hacker/Security", 20, 50, 10, GRAY);
+//        DrawText("Fazione: Hacker/Security", 20, 50, 10, GRAY);
 
         // Ordiniamo i player per score (o energia) per la classifica
         var sortedPlayers = gameServer.getPlayers();
@@ -128,7 +71,7 @@ void main() {
         int yOffset = 90;
         for (int i = 0; i < Math.min(sortedPlayers.size(), 15); i++) {
             BotHandler bot = sortedPlayers.get(i);
-            Color teamColor = bot.isHacker() ? RED : SKYBLUE;
+            Color teamColor = bot.isHacker() ? RAYWHITE : RAYWHITE;
 
 //            String entry = String.format("%d. %-12s %3d%% | %4d", i + 1, bot.getName(), bot.getEnergy(),bot.getScore());
             String entry = String.format("%d. %s - Punti: %d [E: %d]", i+1, bot.getName(), bot.getScore(), bot.getEnergy());

@@ -51,6 +51,7 @@ public class ClusterWarServer {
 
     public void addPlayer(String name, BotHandler newHandler) {
         if (players.containsKey(name)) {
+
             // RICONNESSIONE: Recuperiamo i dati dal vecchio handler
             BotHandler oldData = players.get(name);
 
@@ -58,7 +59,13 @@ public class ClusterWarServer {
             newHandler.setX(oldData.getX());
             newHandler.setY(oldData.getY());
             newHandler.setEnergy(oldData.getEnergy());
-            newHandler.setScore(oldData.getScore()); // Se hai un campo score
+            if (newHandler.getEnergy() == 0) {
+                newHandler.setEnergy(100);
+                newHandler.setScore(oldData.getScore()/2);
+//                newHandler.setScore();
+            } else {
+                newHandler.setScore(oldData.getScore()); // Se hai un campo score
+            }
             newHandler.setVisualX(oldData.getVisualX());
             newHandler.setVisualY(oldData.getVisualY());
 
@@ -84,6 +91,7 @@ public class ClusterWarServer {
                 if (p.getX() == b.getX() && p.getY() == b.getY()) {
                     b.setEnergy(Math.min(100, b.getEnergy() + 30));
                     b.registerCollection();
+                    p.applyEffect(b);
                     return true;
                 }
                 return false;
@@ -101,6 +109,7 @@ public class ClusterWarServer {
                         if (victim.getX() == tx && victim.getY() == ty && victim != b) {
 //                            victim.setEnergy(victim.getEnergy() - 20);
                             victim.takeDamage(20);
+
                             IO.println(b.getName() + " colpisce " + victim.getName());
                             victim.registerHit();
                         }
@@ -110,15 +119,20 @@ public class ClusterWarServer {
         }
 
         // 4. Inviamo lo STATUS a tutti per il prossimo turno
-        String resString = buildResourceString();
+
         for (BotHandler b : players.values()) {
+            String resString = buildResourceString(b);
             b.sendStatus(players.values(), resString);
         }
     }
 
-    private String buildResourceString() {
+    private String buildResourceString(BotHandler bot) {
         StringBuilder sb = new StringBuilder("R:");
-        for (ClusterResource p : resources) sb.append(p.getType()).append(",").append(p.getX()).append(",").append(p.getY()).append(";");
+        for (ClusterResource p : resources) {
+            if ( bot.distance(p) <bot.getViewDistance()) {
+                sb.append(p.getType()).append(",").append(p.getX()).append(",").append(p.getY()).append(";");
+            }
+        }
         return sb.toString();
     }
 //

@@ -1,5 +1,7 @@
 package com.ap.clusterwars;
 
+import com.ap.clusterwars.resources.ClusterResource;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -22,9 +24,14 @@ public class BotHandler implements Runnable {
     private boolean justCollected = false;
     private boolean isDead = false;
     private int respawnTimer = 0;
+    private int viewDistance = 10;
 
     public boolean isDead() {
         return isDead;
+    }
+
+    public int getViewDistance() {
+        return viewDistance;
     }
 
     private float lerpSpeed = 0.1f; // Velocità di scorrimento (0.1 = 10% del percorso a frame)
@@ -116,6 +123,7 @@ public class BotHandler implements Runnable {
             System.out.println(name + " disconnesso.");
         } finally {
 //            gameServer.removePlayer(name); // scommenta per avere respawn alla connessione al 100%
+            this.lastAction = "IDLE";
         }
     }
 
@@ -148,12 +156,13 @@ public class BotHandler implements Runnable {
 
         // Costruisce la stringa STATUS|x,y|energy|E:nemici|R:risorse
         StringBuilder sb = new StringBuilder("STATUS|").append(x).append(",").append(y)
-                .append("|").append(energy).append("|E:");
+                .append("|").append(energy).append("|").append(viewDistance).append("|E:");
         for (BotHandler other : allBots) {
-            if (other != this && dist(other) < 10) { // Raggio visivo 10
+            if (other != this && dist(other) < getViewDistance()) { // Raggio visivo
                 sb.append(other.name).append(",").append(other.x).append(",").append(other.y).append(";");
             }
         }
+
         sb.append("|").append(resString);
         out.println(sb.toString());
     }
@@ -228,4 +237,8 @@ public class BotHandler implements Runnable {
     }
 
     private double dist(BotHandler o) { return Math.sqrt(Math.pow(x-o.x, 2) + Math.pow(y-o.y, 2)); }
+
+    public double distance(ClusterResource r) {
+        return  Math.sqrt(Math.pow(x-r.getX(), 2) + Math.pow(y-r.getY(), 2));
+    }
 }
