@@ -16,6 +16,8 @@ public abstract class BotController {
     private List<Entity> visibleEnemies = new CopyOnWriteArrayList<>();
     private List<Resource> visibleResources = new CopyOnWriteArrayList<>();
     private Thread networkThread;
+    private int currentMax;
+    private int currentMin;
 
     public BotController(String name) { this.name = name; }
 
@@ -68,7 +70,7 @@ public abstract class BotController {
 //            }
 //        }
         String[] parts = status.split("\\|");
-        if (parts.length < 6) return; // Protezione contro pacchetti incompleti
+        if (parts.length < 7) return; // Protezione contro pacchetti incompleti
 
         // 1. Posizione e Energia (parts[1] e parts[2])
         String[] coords = parts[1].split(",");
@@ -89,9 +91,14 @@ public abstract class BotController {
             }
         }
 
+        var boundsString = parts[5].substring(5);
+        String[]bounds = boundsString.split(",");
+        currentMin = Integer.parseInt(bounds[0]);
+        currentMax = Integer.parseInt(bounds[1]);
+
         // 3. Risorse (parts[4]) -> Rimuovi "R:" prima di splittare
         resources.clear();
-        String resourcesData = parts[5].substring(2); // Salta i primi 2 caratteri ("R:")
+        String resourcesData = parts[6].substring(2); // Salta i primi 2 caratteri ("R:")
         if (!resourcesData.isEmpty()) {
             for (String r : resourcesData.split(";")) {
                 String[] d = r.split(",");
@@ -179,16 +186,37 @@ public abstract class BotController {
         System.exit(0);
     }
 
+
     private void drawMiniMap() {
-        int viewSize = 500; // Ingrandita da 300 a 700
+        int viewSize = 500;
         int offsetX = 50;
         int offsetY = 20;
 
-        // Scala: 700 pixel / 40 celle = 17.5 pixel per cella
         float scale = viewSize / (float)ClusterWarServer.GRID_SIZE;
 
-        // 1. Sfondo dell'arena locale (grigio molto scuro per profondità)
+        // 1. Sfondo dell'arena locale
         DrawRectangle(offsetX, offsetY, viewSize, viewSize, new Color().r((byte)25).g((byte)25).b((byte)30).a((byte)255));
+
+        // --- AGGIUNTA: DISEGNO BORDER ZONE (DIGITAL STORM) ---
+        // Definiamo un colore rosso semi-trasparente per la zona corrotta
+        Color stormColor = ColorAlpha(RED, 0.3f);
+        int minPx = (int)(currentMin * scale);
+        int maxPx = (int)((currentMax + 1) * scale); // +1 perché includiamo l'ultima cella
+        int sizePx = maxPx - minPx;
+
+        // Rettangolo Superiore
+        DrawRectangle(offsetX, offsetY, viewSize, minPx, stormColor);
+        // Rettangolo Inferiore
+        DrawRectangle(offsetX, offsetY + maxPx, viewSize, viewSize - maxPx, stormColor);
+        // Rettangolo Sinistro (solo la parte centrale rimasta)
+        DrawRectangle(offsetX, offsetY + minPx, minPx, sizePx, stormColor);
+        // Rettangolo Destro (solo la parte centrale rimasta)
+        DrawRectangle(offsetX + maxPx, offsetY + minPx, viewSize - maxPx, sizePx, stormColor);
+
+        // Cornice della zona sicura (Glow rosso)
+        DrawRectangleLines(offsetX + minPx, offsetY + minPx, sizePx, sizePx, RED);
+        // ------------------------------------------------------
+
         DrawRectangleLines(offsetX, offsetY, viewSize, viewSize, DARKGRAY);
 
         // 2. Raggio visivo
@@ -199,13 +227,15 @@ public abstract class BotController {
                 radiusPx, ColorAlpha(LIME, 0.4f)
         );
 
-        // 3. Risorse (leggermente più grandi visto che c'è spazio)
+        // 3. Risorse
         for (Resource r : resources) {
-            switch(r.type()) {
-                case "SERVER" -> DrawCircle((int) (offsetX + r.x() * scale), (int) (offsetY + r.y() * scale), 5, GOLD);
-                case "RAMSTICK" -> DrawCircle((int) (offsetX + r.x() * scale), (int) (offsetY + r.y() * scale), 5, RED);
+            // Disegniamo la risorsa solo se è dentro i bordi (opzionale, il server dovrebbe già filtrarle)
+            if (r.x() >= currentMin && r.x() <= currentMax && r.y() >= currentMin && r.y() <= currentMax) {
+                switch(r.type()) {
+                    case "SERVER" -> DrawCircle((int) (offsetX + r.x() * scale), (int) (offsetY + r.y() * scale), 5, GOLD);
+                    case "RAMSTICK" -> DrawCircle((int) (offsetX + r.x() * scale), (int) (offsetY + r.y() * scale), 5, RED);
+                }
             }
-
         }
 
         // 4. Nemici
@@ -213,11 +243,50 @@ public abstract class BotController {
             DrawRectangle((int)(offsetX + e.x() * scale - 4), (int)(offsetY + e.y() * scale - 4), 10, 10, RED);
         }
 
-        // 5. Se Stesso (Bot principale)
-        // Usiamo DrawPoly per fare un triangolo o una forma più "da player"
+        // 5. Se Stesso
         DrawRectangle((int)(offsetX + visualX * scale - 6), (int)(offsetY + visualY * scale - 6), 12, 12, GREEN);
         DrawRectangleLines((int)(offsetX + visualX * scale - 6), (int)(offsetY + visualY * scale - 6), 12, 12, WHITE);
     }
+
+//    private void drawMiniMap() {
+//        int viewSize = 500; // Ingrandita da 300 a 700
+//        int offsetX = 50;
+//        int offsetY = 20;
+//
+//        // Scala: 700 pixel / 40 celle = 17.5 pixel per cella
+//        float scale = viewSize / (float)ClusterWarServer.GRID_SIZE;
+//
+//        // 1. Sfondo dell'arena locale (grigio molto scuro per profondità)
+//        DrawRectangle(offsetX, offsetY, viewSize, viewSize, new Color().r((byte)25).g((byte)25).b((byte)30).a((byte)255));
+//        DrawRectangleLines(offsetX, offsetY, viewSize, viewSize, DARKGRAY);
+//
+//        // 2. Raggio visivo
+//        float radiusPx = viewDistance * scale;
+//        DrawCircleLines(
+//                (int)(offsetX + visualX * scale),
+//                (int)(offsetY + visualY * scale),
+//                radiusPx, ColorAlpha(LIME, 0.4f)
+//        );
+//
+//        // 3. Risorse (leggermente più grandi visto che c'è spazio)
+//        for (Resource r : resources) {
+//            switch(r.type()) {
+//                case "SERVER" -> DrawCircle((int) (offsetX + r.x() * scale), (int) (offsetY + r.y() * scale), 5, GOLD);
+//                case "RAMSTICK" -> DrawCircle((int) (offsetX + r.x() * scale), (int) (offsetY + r.y() * scale), 5, RED);
+//            }
+//
+//        }
+//
+//        // 4. Nemici
+//        for (Entity e : enemies) {
+//            DrawRectangle((int)(offsetX + e.x() * scale - 4), (int)(offsetY + e.y() * scale - 4), 10, 10, RED);
+//        }
+//
+//        // 5. Se Stesso (Bot principale)
+//        // Usiamo DrawPoly per fare un triangolo o una forma più "da player"
+//        DrawRectangle((int)(offsetX + visualX * scale - 6), (int)(offsetY + visualY * scale - 6), 12, 12, GREEN);
+//        DrawRectangleLines((int)(offsetX + visualX * scale - 6), (int)(offsetY + visualY * scale - 6), 12, 12, WHITE);
+//    }
 
 //    private void drawMiniMap() {
 //        int viewSize = 600; // Dimensione del riquadro mini-mappa
@@ -297,6 +366,7 @@ public abstract class BotController {
     public int getX() { return x; }
     public int getY() { return y; }
     public int getEnergy() { return energy; }
-    public List<Entity> getEnemies() { return visibleEnemies; }
-    public List<Resource> getResources() { return visibleResources; }
+    public List<Entity> getEnemies() { return enemies; }
+    public List<Resource> getResources() { return resources; }
+
 }

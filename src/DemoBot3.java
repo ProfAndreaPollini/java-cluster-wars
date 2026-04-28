@@ -73,7 +73,7 @@ public static class MyBot extends BotController {
         }
 
         // Se non vede risorse, si muove a caso
-        String[] moves = {"MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT"};
+        String[] moves = {"DASH:UP", "DASH:DOWN", "DASH:LEFT", "DASH:RIGHT"};
         return moves[(int) (Math.random() * moves.length)];
     }
 

@@ -21,9 +21,9 @@ public class ClusterWarServer {
     public enum GameState { COUNTDOWN, RUNNING, FINISHED }
 
     private static final int PORT = 5000;
-    public static final int GRID_SIZE = 40;
-    public static final int NUM_RESOURCES = 30;
-    public static final int CELL_SIZE = 20;
+    public static final int GRID_SIZE = 80;
+    public static final int NUM_RESOURCES = 120;
+    public static final int CELL_SIZE = 10;
 
     private static ConcurrentHashMap<String, BotHandler> players = new ConcurrentHashMap<>();
     private static List<ClusterResource> resources = new CopyOnWriteArrayList<>();
@@ -35,6 +35,9 @@ public class ClusterWarServer {
     private int timerTicks = 10; // 3 secondi per il countdown iniziale
     private int matchDuration = 180; // 3 minuti di gioco (180 secondi)
     private final int POST_MATCH_PAUSE = 20; // 20 secondi per vedere la classifica
+
+    private int currentMin = 0;
+    private int currentMax = GRID_SIZE - 1;
 
     public ClusterWarServer() {
         loadHistory();
@@ -97,18 +100,33 @@ public class ClusterWarServer {
 
     private void generateResources(int numResources) {
         Random r = new Random();
-        for (int i = 0; i < numResources; i++) {
+//        for (int i = 0; i < numResources; i++) {
+//            int x = r.nextInt(GRID_SIZE);
+//            int y = r.nextInt(GRID_SIZE);
+//
+//            // Decidiamo che tipo di risorsa creare (es. 70% Server, 30% RAM)
+//            double chance = r.nextDouble();
+//
+//
+//            if (chance < 0.70) {
+//                resources.add(new ServerNode(x, y));
+//            } else {
+//                resources.add(new RAMStick(x, y));
+//            }
+//        }
+        int created = 0;
+        while (created < numResources) {
             int x = r.nextInt(GRID_SIZE);
             int y = r.nextInt(GRID_SIZE);
 
-            // Decidiamo che tipo di risorsa creare (es. 70% Server, 30% RAM)
-            double chance = r.nextDouble();
+            // Controlla se la cella è già occupata da un'altra risorsa
+            boolean occupied = resources.stream().anyMatch(res -> res.getX() == x && res.getY() == y);
 
-
-            if (chance < 0.70) {
-                resources.add(new ServerNode(x, y));
-            } else {
-                resources.add(new RAMStick(x, y));
+            if (!occupied) {
+                double chance = r.nextDouble();
+                if (chance < 0.70) resources.add(new ServerNode(x, y));
+                else resources.add(new RAMStick(x, y));
+                created++;
             }
         }
     }
@@ -168,6 +186,8 @@ public class ClusterWarServer {
                 timerTicks--;
             } else {
                 currentState = GameState.RUNNING;
+                currentMax = GRID_SIZE-1;
+                currentMin = 0;
                 timerTicks = matchDuration; // Carica il timer del match
             }
             return; // Non muovere nulla durante il countdown
@@ -181,6 +201,16 @@ public class ClusterWarServer {
                 saveResultsToJson(); // Salvataggio a fine match
             }
 
+            // Se il match dura 180s, iniziamo a stringere a 90s
+            if (timerTicks < 90 && timerTicks % 10 == 0) {
+                // Ogni 10 secondi la mappa si stringe di 1 cella per lato
+                if (currentMin < currentMax - 5) { // Lasciamo almeno un 5x5 al centro
+                    currentMin++;
+                    currentMax--;
+                    System.out.println("[STORM] La zona si restringe! Range: " + currentMin + "-" + currentMax);
+                }
+            }
+
 
             // 1. Applichiamo i movimenti
             for (BotHandler b : players.values()) {
@@ -188,9 +218,55 @@ public class ClusterWarServer {
                     b.handleRespawn(); // Gestisce il countdown
                     continue; // Salta il movimento e l'attacco per questo tick
                 }
+                // --- CONTROLLO DANNO DA ZONA ---
+                if (b.getX() < currentMin || b.getX() > currentMax ||
+                        b.getY() < currentMin || b.getY() > currentMax) {
+                    b.takeDamage(10); // 10 danni a ogni tick fuori zona!
+                }
+
+                // --- NUOVI COMANDI ---
+
+                // 1. SCAN: Aumenta la vista per questo turno (costo: 5 energia)
+                if (b.getLastAction().equals("SCAN")) {
+                    if (b.getEnergy() >= 5) {
+                        b.setEnergy(b.getEnergy() - 5);
+                        b.setViewDistance(20); // Raddoppia la vista temporaneamente
+                    }
+                } else {
+                    b.setViewDistance(7); // Reset della vista se non usa SCAN
+                }
+
+                // 2. SHIELD: Protezione dai danni (costo: 2 HP per tick)
+                if (b.getLastAction().equals("SHIELD")) {
+                    if (b.getEnergy() > 2) {
+                        b.setEnergy(b.getEnergy() - 2);
+                        b.setShielded(true); // Devi aggiungere questo boolean in BotHandler
+                    }
+                } else {
+                    b.setShielded(false);
+                }
+
+                // 3. REPAIR: Converte Score in Energia (costo: 50 RAM)
+                if (b.getLastAction().equals("REPAIR")) {
+                    if (b.getScore() >= 50 && b.getEnergy() < 100) {
+                        b.setScore(b.getScore() - 50);
+                        b.setEnergy(Math.min(100, b.getEnergy() + 20));
+                    }
+                }
 
                 if (b.getLastAction().equals("WAIT")) {
                     b.setEnergy(Math.min(100, b.getEnergy() + 1));
+                }
+
+                if (b.getLastAction().startsWith("DASH:")) {
+                    if (b.getEnergy() >= 10) {
+                        b.setEnergy(b.getEnergy() - 10);
+                        var dir = b.getLastAction().substring(5);
+                        b.setLastAction(String.format("MOVE_%s", dir));
+
+                        // Esegue il movimento 3 volte invece di una
+                        for(int i=0; i<3; i++) b.executeMove(GRID_SIZE);
+                    }
                 }
 
                 b.executeMove(GRID_SIZE);
@@ -204,6 +280,17 @@ public class ClusterWarServer {
                     }
                     return false;
                 });
+            }
+
+            // Rimuoviamo anche le risorse che finiscono fuori zona
+            resources.removeIf(p -> p.getX() < currentMin || p.getX() > currentMax ||
+                    p.getY() < currentMin || p.getY() > currentMax);
+
+            // Se le risorse scendono sotto il 30% del totale iniziale
+            if (resources.size() < (NUM_RESOURCES * 0.3)) {
+                int toSpawn = 5; // Ne aggiungiamo un gruppetto alla volta
+                generateResources(toSpawn);
+                System.out.println("[SERVER] Risorse scarse! Spawnate " + toSpawn + " nuove risorse.");
             }
 
             // 3. Risolviamo attacchi
@@ -228,9 +315,12 @@ public class ClusterWarServer {
 
             // 4. Inviamo lo STATUS a tutti per il prossimo turno
 
+            var sb = new StringBuilder();
+            sb.append("ZONE:").append(currentMin).append(",").append(currentMax).append("|");
+
             for (BotHandler b : players.values()) {
                 String resString = buildResourceString(b);
-                b.sendStatus(players.values(), resString);
+                b.sendStatus(players.values(), sb.toString()+resString);
             }
 
         }
@@ -330,6 +420,14 @@ public class ClusterWarServer {
 
     public List<ClusterResource> getResources() {
         return resources;
+    }
+
+    public int getCurrentMin() {
+        return currentMin;
+    }
+
+    public int getCurrentMax() {
+        return currentMax;
     }
 
     public List<BotHandler> getPlayers() {

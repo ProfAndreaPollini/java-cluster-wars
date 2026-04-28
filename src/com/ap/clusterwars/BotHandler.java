@@ -25,12 +25,12 @@ public class BotHandler implements Runnable {
     private boolean justCollected = false;
     private boolean isDead = false;
     private int respawnTimer = 0;
-    private int viewDistance = 10;
+    private int viewDistance = 7;
 
     private long lastMessageTime = 0;
     private int messageCount = 0;
     private final int MAX_MESSAGES_PER_SECOND = 10; // Un bot onesto non invia più di 1-2 messaggi
-
+    private boolean isShielded = false;
 
     public boolean isDead() {
         return isDead;
@@ -259,7 +259,10 @@ public class BotHandler implements Runnable {
     public void takeDamage(int amount) {
         if (isDead) return; // Non puoi colpire chi è già morto
 
-        this.energy -= amount;
+        int finalDamage = isShielded ? amount / 2 : amount;
+        this.energy -= finalDamage;
+
+//        this.energy -= amount;
         if (this.energy <= 0) {
             setDead();
 //            this.energy = 0;
@@ -288,5 +291,13 @@ public class BotHandler implements Runnable {
 
     public double distance(ClusterResource r) {
         return  Math.sqrt(Math.pow(x-r.getX(), 2) + Math.pow(y-r.getY(), 2));
+    }
+
+    public void setViewDistance(int viewDistance) {
+        this.viewDistance = viewDistance;
+    }
+
+    public void setShielded(boolean b) {
+        isShielded = b;
     }
 }

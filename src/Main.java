@@ -19,7 +19,7 @@ List<FloatingText> floatingTexts = new CopyOnWriteArrayList<>();
 void main() {
     final int SIDEBAR_WIDTH = 250;
     final int ARENA_OFFSET_X = SIDEBAR_WIDTH; // Il campo inizia dopo la sidebar
-    final int SCREEN_WIDTH = 800 + SIDEBAR_WIDTH;
+    final int SCREEN_WIDTH = 1200 + SIDEBAR_WIDTH;
     final int SCREEN_HEIGHT = 800; // Alziamo a 800 per far stare la griglia 40x20
 
     double lastUpdateTime = GetTime();
@@ -30,7 +30,7 @@ void main() {
 
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Cluster War 2D - Cyber Arena");
-    SetTargetFPS(60);
+    SetTargetFPS(80);
 
 
 
@@ -171,6 +171,32 @@ void main() {
             for (FloatingText ft : floatingTexts) {
                 ft.draw();
             }
+
+            float scale = 20.0f; // La tua scala di disegno
+            int offsetX = ARENA_OFFSET_X;
+            int offsetY = 0;
+
+            // 1. Disegna la zona sicura (Sfondo normale)
+//            DrawRectangle(offsetX, offsetY, 800, 800, BLACK);
+
+            // 2. Disegna la "Corruzione" (Area fuori dai limiti)
+            // Disegniamo dei rettangoli rossi semi-trasparenti sui bordi
+            Color stormColor = ColorAlpha(RED, 0.3f);
+
+            var currentMin = gameServer.getCurrentMin();
+            var currentMax = gameServer.getCurrentMax();
+            // Rettangolo Sopra
+            DrawRectangle(offsetX, offsetY, 800, currentMin * (int)scale, stormColor);
+            // Rettangolo Sotto
+            DrawRectangle(offsetX, (currentMax + 1) * (int)scale + offsetY, 800, (GRID_SIZE - currentMax) * (int)scale, stormColor);
+            // Rettangolo Sinistra
+            DrawRectangle(offsetX, currentMin * (int)scale + offsetY, currentMin * (int)scale, (currentMax - currentMin + 1) * (int)scale, stormColor);
+            // Rettangolo Destra
+            DrawRectangle((currentMax + 1) * (int)scale + offsetX, currentMin * (int)scale + offsetY, (GRID_SIZE - currentMax) * (int)scale, (currentMax - currentMin + 1) * (int)scale, stormColor);
+
+            // 3. Linea di confine (Glow effetto neon)
+            DrawRectangleLines(currentMin * (int)scale + offsetX, currentMin * (int)scale + offsetY,
+                    (currentMax - currentMin + 1) * (int)scale, (currentMax - currentMin + 1) * (int)scale, RED);
             // Overlay info
             DrawFPS(SCREEN_WIDTH - 80, 10);
             DrawText("TIME: " + gameServer.getTimer() + "s", SIDEBAR_WIDTH + 20, 20, 20, YELLOW);
