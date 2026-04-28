@@ -74,3 +74,5 @@ Il server monitora costantemente la densità di dati nell'arena.
 **⚠️ Nota per gli sviluppatori:** Gestite con cura il risparmio energetico. Un bot che usa costantemente `SHIELD` e `SCAN` senza raccogliere `SERVER` node si scollegherà in meno di 40 secondi.
 
 **Buona caccia alla RAM!**
+
+![](./img.png)
